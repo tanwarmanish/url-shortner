@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Check, Copy, ExternalLink, Link2, Loader2 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useState } from 'react';
 
 interface ShortenedUrl {
@@ -153,6 +154,18 @@ export function UrlShortener() {
               <p className="text-sm font-mono bg-background px-2 py-1 rounded inline-block">
                 {shortenedUrl.shortCode}
               </p>
+            </div>
+
+            <div className="pt-3 border-t border-border flex flex-col items-center gap-2">
+              <p className="text-xs text-muted-foreground">Scan to open</p>
+              <div className="bg-white p-3 rounded-lg">
+                <QRCodeSVG
+                  value={`${API_URL}${shortenedUrl.shortUrl}`}
+                  size={160}
+                  level="M"
+                  includeMargin={false}
+                />
+              </div>
             </div>
           </div>
         )}
