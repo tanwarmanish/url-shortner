@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import * as bcrypt from 'bcryptjs';
 import { Model } from 'mongoose';
 import { RedisCacheService } from './redis-cache.service';
 import { Url, UrlDocument } from './schemas/url.schema';
@@ -22,22 +23,25 @@ export class UrlService {
   async createShortUrl(
     originalUrl: string,
     useEmoji = false,
+    password?: string,
   ): Promise<{ shortCode: string; shortUrl: string }> {
-    // Check if URL already exists with the same code style
-    const existingMappings = await this.urlModel
-      .find({ originalUrl })
-      .exec();
+    // Only reuse existing code if no password is set (password links are always unique)
+    if (!password) {
+      const existingMappings = await this.urlModel
+        .find({ originalUrl, passwordHash: null })
+        .exec();
 
-    const match = existingMappings.find((m) => {
-      const isEmoji = !/^[a-zA-Z]+$/.test(m.shortCode);
-      return useEmoji ? isEmoji : !isEmoji;
-    });
+      const match = existingMappings.find((m) => {
+        const isEmoji = !/^[a-zA-Z]+$/.test(m.shortCode);
+        return useEmoji ? isEmoji : !isEmoji;
+      });
 
-    if (match) {
-      return {
-        shortCode: match.shortCode,
-        shortUrl: `/${match.shortCode}`,
-      };
+      if (match) {
+        return {
+          shortCode: match.shortCode,
+          shortUrl: `/${match.shortCode}`,
+        };
+      }
     }
 
     // Generate a unique short code
@@ -54,17 +58,24 @@ export class UrlService {
     }
 
     // Create and save the new URL mapping
+    const passwordHash = password
+      ? await bcrypt.hash(password, 10)
+      : null;
+
     const newUrl = new this.urlModel({
       originalUrl,
       shortCode,
       normalizedCode,
       lastAccessedAt: new Date(),
+      passwordHash,
     });
 
     await newUrl.save();
 
-    // Warm the cache
-    await this.redisCacheService.setUrl(normalizedCode, originalUrl);
+    // Warm the cache (skip for password-protected URLs)
+    if (!passwordHash) {
+      await this.redisCacheService.setUrl(normalizedCode, originalUrl);
+    }
 
     return {
       shortCode,
@@ -113,8 +124,10 @@ export class UrlService {
       );
     }
 
-    // Populate cache for next hit
-    await this.redisCacheService.setUrl(normalizedCode, urlDoc.originalUrl);
+    // Populate cache for next hit (skip password-protected)
+    if (!urlDoc.passwordHash) {
+      await this.redisCacheService.setUrl(normalizedCode, urlDoc.originalUrl);
+    }
 
     return urlDoc.originalUrl;
   }
@@ -142,5 +155,49 @@ export class UrlService {
     }
 
     return urlDoc;
+  }
+
+  /**
+   * Check if a short code is password-protected
+   */
+  async isPasswordProtected(shortCode: string): Promise<boolean> {
+    const normalizedCode =
+      this.wordGeneratorService.normalizeShortCode(shortCode);
+    const urlDoc = await this.urlModel.findOne({ normalizedCode }).exec();
+    return !!urlDoc?.passwordHash;
+  }
+
+  /**
+   * Verify password and return original URL if correct
+   */
+  async verifyPasswordAndGetUrl(
+    shortCode: string,
+    password: string,
+  ): Promise<string> {
+    const normalizedCode =
+      this.wordGeneratorService.normalizeShortCode(shortCode);
+
+    const urlDoc = await this.urlModel
+      .findOneAndUpdate(
+        { normalizedCode },
+        { $inc: { clicks: 1 }, $set: { lastAccessedAt: new Date() } },
+        { new: true },
+      )
+      .exec();
+
+    if (!urlDoc) {
+      throw new NotFoundException('Short URL not found.');
+    }
+
+    if (!urlDoc.passwordHash) {
+      return urlDoc.originalUrl;
+    }
+
+    const valid = await bcrypt.compare(password, urlDoc.passwordHash);
+    if (!valid) {
+      throw new NotFoundException('Incorrect password.');
+    }
+
+    return urlDoc.originalUrl;
   }
 }

@@ -33,6 +33,7 @@ export class UrlController {
     const result = await this.urlService.createShortUrl(
       createUrlDto.url,
       createUrlDto.useEmoji,
+      createUrlDto.password,
     );
 
     return {
@@ -42,6 +43,7 @@ export class UrlController {
         originalUrl: createUrlDto.url,
         shortCode: result.shortCode,
         shortUrl: result.shortUrl,
+        isPasswordProtected: !!createUrlDto.password,
       },
     };
   }
@@ -134,6 +136,15 @@ export class UrlController {
   @ApiResponse({ status: 200, description: 'Short URL resolved successfully' })
   @ApiResponse({ status: 404, description: 'Short URL not found' })
   async resolveShortCode(@Param('shortCode') shortCode: string) {
+    const isProtected = await this.urlService.isPasswordProtected(shortCode);
+
+    if (isProtected) {
+      return {
+        success: true,
+        data: { shortCode, passwordRequired: true },
+      };
+    }
+
     const originalUrl = await this.urlService.getOriginalUrl(shortCode);
 
     return {
@@ -159,10 +170,45 @@ export class UrlController {
     @Param('shortCode') shortCode: string,
     @Res() res: Response,
   ) {
+    const isProtected = await this.urlService.isPasswordProtected(shortCode);
+
+    if (isProtected) {
+      const webAppUrl = this.configService.get<string>(
+        'WEB_APP_URL',
+        'http://localhost:4200',
+      );
+      return res.redirect(
+        HttpStatus.FOUND,
+        `${webAppUrl}/unlock/${encodeURIComponent(shortCode)}`,
+      );
+    }
+
     const originalUrl = await this.urlService.getOriginalUrl(shortCode);
 
     // Using 302 Found for redirect (302 is standard for URL shorteners)
     return res.redirect(HttpStatus.FOUND, originalUrl);
   }
 
+  /**
+   * POST /verify-password
+   * Verify password for a protected short URL
+   */
+  @Post('verify-password')
+  @Throttle({ short: { ttl: 60000, limit: 10 }, long: { ttl: 600000, limit: 30 } })
+  @ApiOperation({ summary: 'Verify password for protected link' })
+  @ApiResponse({ status: 200, description: 'Password verified, returns original URL' })
+  @ApiResponse({ status: 404, description: 'Wrong password or link not found' })
+  async verifyPassword(
+    @Body() body: { shortCode: string; password: string },
+  ) {
+    const originalUrl = await this.urlService.verifyPasswordAndGetUrl(
+      body.shortCode,
+      body.password,
+    );
+
+    return {
+      success: true,
+      data: { originalUrl },
+    };
+  }
 }

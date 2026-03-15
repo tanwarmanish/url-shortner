@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { NoteModule } from './note/note.module';
 import { UrlModule } from './url/url.module';
 
 @Module({
@@ -38,6 +39,7 @@ import { UrlModule } from './url/url.module';
       inject: [ConfigService],
     }),
     UrlModule,
+    NoteModule,
   ],
   controllers: [AppController],
   providers: [

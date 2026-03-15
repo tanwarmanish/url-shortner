@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsOptional, IsUrl } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 export class CreateUrlDto {
   @ApiProperty({
@@ -24,4 +24,12 @@ export class CreateUrlDto {
   @IsOptional()
   @IsBoolean()
   useEmoji?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Optional password to protect the short URL',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  password?: string;
 }

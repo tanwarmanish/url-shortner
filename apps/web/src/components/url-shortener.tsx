@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { Check, Copy, ExternalLink, Link2, Loader2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Link2, Loader2, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -31,6 +31,7 @@ export function UrlShortener({
 }: UrlShortenerProps) {
   const [url, setUrl] = useState('');
   const [useEmoji, setUseEmoji] = useState(false);
+  const [password, setPassword] = useState('');
   const [shortenedUrl, setShortenedUrl] = useState<ShortenedUrl | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -64,7 +65,11 @@ export function UrlShortener({
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ url: urlToShorten, useEmoji }),
+          body: JSON.stringify({
+            url: urlToShorten,
+            useEmoji,
+            ...(password.trim() && { password: password.trim() }),
+          }),
         });
 
         const data = await response.json();
@@ -80,7 +85,7 @@ export function UrlShortener({
         setLoading(false);
       }
     },
-    [useEmoji],
+    [useEmoji, password],
   );
 
   useEffect(() => {
@@ -160,6 +165,18 @@ export function UrlShortener({
               Use emoji code instead of words
             </span>
           </label>
+
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="password"
+              placeholder="Password protect (optional)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="pl-10 h-10 rounded-2xl bg-white/65 border-white/50 shadow-inner shadow-slate-900/5 dark:bg-slate-900/55 dark:border-white/10"
+              disabled={loading}
+            />
+          </div>
 
           {error && (
             <p className="text-sm text-destructive text-left">{error}</p>

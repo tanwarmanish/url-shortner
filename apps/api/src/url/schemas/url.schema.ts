@@ -20,6 +20,9 @@ export class Url {
   @Prop({ type: Date, default: Date.now })
   lastAccessedAt: Date;
 
+  @Prop({ default: null })
+  passwordHash: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
