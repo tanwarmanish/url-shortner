@@ -1,14 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { RedisCacheService } from './redis-cache.service';
 import { Url, UrlDocument } from './schemas/url.schema';
 import { WordGeneratorService } from './word-generator.service';
 
 @Injectable()
 export class UrlService {
+  private readonly logger = new Logger(UrlService.name);
+
   constructor(
     @InjectModel(Url.name) private urlModel: Model<UrlDocument>,
     private readonly wordGeneratorService: WordGeneratorService,
+    private readonly redisCacheService: RedisCacheService,
   ) {}
 
   /**
@@ -17,16 +21,22 @@ export class UrlService {
    */
   async createShortUrl(
     originalUrl: string,
+    useEmoji = false,
   ): Promise<{ shortCode: string; shortUrl: string }> {
-    // Check if URL already exists to avoid duplicates
-    const existingMapping = await this.urlModel
-      .findOne({ originalUrl })
+    // Check if URL already exists with the same code style
+    const existingMappings = await this.urlModel
+      .find({ originalUrl })
       .exec();
 
-    if (existingMapping) {
+    const match = existingMappings.find((m) => {
+      const isEmoji = !/^[a-zA-Z]+$/.test(m.shortCode);
+      return useEmoji ? isEmoji : !isEmoji;
+    });
+
+    if (match) {
       return {
-        shortCode: existingMapping.shortCode,
-        shortUrl: `/${existingMapping.shortCode}`,
+        shortCode: match.shortCode,
+        shortUrl: `/${match.shortCode}`,
       };
     }
 
@@ -36,7 +46,9 @@ export class UrlService {
     let exists = true;
 
     while (exists) {
-      shortCode = this.wordGeneratorService.generateShortCode();
+      shortCode = useEmoji
+        ? this.wordGeneratorService.generateEmojiCode()
+        : this.wordGeneratorService.generateShortCode();
       normalizedCode = this.wordGeneratorService.normalizeShortCode(shortCode);
       exists = !!(await this.urlModel.findOne({ normalizedCode }).exec());
     }
@@ -46,9 +58,13 @@ export class UrlService {
       originalUrl,
       shortCode,
       normalizedCode,
+      lastAccessedAt: new Date(),
     });
 
     await newUrl.save();
+
+    // Warm the cache
+    await this.redisCacheService.setUrl(normalizedCode, originalUrl);
 
     return {
       shortCode,
@@ -58,16 +74,35 @@ export class UrlService {
 
   /**
    * Retrieves the original URL for a given short code
-   * Handles case-insensitive lookup and increments click count
+   * Uses Redis cache-aside: check cache first, fall back to MongoDB
+   * Updates lastAccessedAt and increments click count
    */
   async getOriginalUrl(shortCode: string): Promise<string> {
     const normalizedCode =
       this.wordGeneratorService.normalizeShortCode(shortCode);
 
+    // Try Redis first
+    const cached = await this.redisCacheService.getUrl(normalizedCode);
+
+    if (cached) {
+      this.logger.debug(`Cache hit: ${normalizedCode}`);
+      // Fire-and-forget Mongo update for clicks + recency
+      void this.urlModel
+        .updateOne(
+          { normalizedCode },
+          { $inc: { clicks: 1 }, $set: { lastAccessedAt: new Date() } },
+        )
+        .exec();
+      void this.redisCacheService.touchRecency(normalizedCode);
+      return cached;
+    }
+
+    this.logger.debug(`Cache miss: ${normalizedCode}`);
+
     const urlDoc = await this.urlModel
       .findOneAndUpdate(
         { normalizedCode },
-        { $inc: { clicks: 1 } },
+        { $inc: { clicks: 1 }, $set: { lastAccessedAt: new Date() } },
         { new: true },
       )
       .exec();
@@ -77,6 +112,9 @@ export class UrlService {
         `Short URL not found: ${shortCode}. Please check the URL and try again.`,
       );
     }
+
+    // Populate cache for next hit
+    await this.redisCacheService.setUrl(normalizedCode, urlDoc.originalUrl);
 
     return urlDoc.originalUrl;
   }

@@ -11,11 +11,14 @@ export class Url {
   @Prop({ required: true, unique: true })
   shortCode: string;
 
-  @Prop({ required: true, unique: true })
+  @Prop({ required: true })
   normalizedCode: string;
 
   @Prop({ default: 0 })
   clicks: number;
+
+  @Prop({ type: Date, default: Date.now })
+  lastAccessedAt: Date;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -24,5 +27,7 @@ export class Url {
 export const UrlSchema = SchemaFactory.createForClass(Url);
 
 // Index for faster lookups
-UrlSchema.index({ normalizedCode: 1 });
+UrlSchema.index({ normalizedCode: 1 }, { unique: true });
 UrlSchema.index({ originalUrl: 1 });
+// Index for cleanup queries (oldest inactive first)
+UrlSchema.index({ lastAccessedAt: 1 });

@@ -1,12 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpStatus,
-  Param,
-  Post,
-  Res,
-} from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Param, Post, Req, Res } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ApiOperation,
   ApiParam,
@@ -14,14 +7,17 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { CreateUrlDto } from './dto/create-url.dto';
 import { UrlService } from './url.service';
 
 @ApiTags('urls')
 @Controller()
 export class UrlController {
-  constructor(private readonly urlService: UrlService) {}
+  constructor(
+    private readonly urlService: UrlService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * POST /shorten
@@ -34,7 +30,10 @@ export class UrlController {
   @ApiResponse({ status: 400, description: 'Invalid URL provided' })
   @ApiResponse({ status: 429, description: 'Too many requests - rate limit exceeded' })
   async createShortUrl(@Body() createUrlDto: CreateUrlDto) {
-    const result = await this.urlService.createShortUrl(createUrlDto.url);
+    const result = await this.urlService.createShortUrl(
+      createUrlDto.url,
+      createUrlDto.useEmoji,
+    );
 
     return {
       success: true,
@@ -45,6 +44,52 @@ export class UrlController {
         shortUrl: result.shortUrl,
       },
     };
+  }
+
+  /**
+   * GET /s
+   * Opens the React shortener page
+   */
+  @Get('s')
+  @SkipThrottle()
+  @ApiOperation({
+    summary: 'Open shortener UI',
+    description: 'Redirects to the React shortener page.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirects to React app' })
+  openShortenerPage(@Res() res: Response) {
+    const webAppUrl = this.configService.get<string>(
+      'WEB_APP_URL',
+      'http://localhost:4200',
+    );
+
+    return res.redirect(HttpStatus.FOUND, webAppUrl);
+  }
+
+  /**
+   * GET /s/*
+   * Redirects to the React app route where the URL is shortened via POST flow
+   */
+  @Get('s/*')
+  @SkipThrottle()
+  @ApiOperation({
+    summary: 'Open frontend shorten route',
+    description:
+      'Redirects to frontend /s/* route so the React app performs shortening via POST /shorten.',
+  })
+  @ApiResponse({ status: 302, description: 'Redirects to frontend /s/* route' })
+  openShortenerPathOnFrontend(@Req() req: Request, @Res() res: Response) {
+    const webAppUrl = this.configService.get<string>(
+      'WEB_APP_URL',
+      'http://localhost:4200',
+    );
+    const pathValue = (req.params as Record<string, string>)[0] ?? '';
+    const encodedPath = pathValue
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+
+    return res.redirect(HttpStatus.FOUND, `${webAppUrl}/s/${encodedPath}`);
   }
 
   /**
@@ -71,6 +116,36 @@ export class UrlController {
   }
 
   /**
+   * GET /resolve/:shortCode
+   * Resolves short code and returns original URL while incrementing clicks
+   */
+  @Get('resolve/:shortCode')
+  @SkipThrottle()
+  @ApiOperation({
+    summary: 'Resolve short URL',
+    description:
+      'Resolves short code and returns original URL for frontend-driven redirect flow.',
+  })
+  @ApiParam({
+    name: 'shortCode',
+    description: 'The short code (case-insensitive)',
+    example: 'happyBlueMountain',
+  })
+  @ApiResponse({ status: 200, description: 'Short URL resolved successfully' })
+  @ApiResponse({ status: 404, description: 'Short URL not found' })
+  async resolveShortCode(@Param('shortCode') shortCode: string) {
+    const originalUrl = await this.urlService.getOriginalUrl(shortCode);
+
+    return {
+      success: true,
+      data: {
+        shortCode,
+        originalUrl,
+      },
+    };
+  }
+
+  /**
    * GET /:shortCode
    * Redirects to the original URL using 302 redirect
    */
@@ -89,4 +164,5 @@ export class UrlController {
     // Using 302 Found for redirect (302 is standard for URL shorteners)
     return res.redirect(HttpStatus.FOUND, originalUrl);
   }
+
 }

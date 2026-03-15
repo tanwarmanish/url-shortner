@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Check, Copy, ExternalLink, Link2, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ShortenedUrl {
   originalUrl: string;
@@ -13,72 +13,112 @@ interface ShortenedUrl {
 }
 
 const API_URL = 'http://localhost:3000';
+const FRONTEND_URL =
+  typeof window !== 'undefined'
+    ? window.location.origin
+    : 'http://localhost:4200';
 
-export function UrlShortener() {
+interface UrlShortenerProps {
+  initialUrl?: string;
+  autoShortenOnMount?: boolean;
+}
+
+export function UrlShortener({
+  initialUrl,
+  autoShortenOnMount = false,
+}: UrlShortenerProps) {
   const [url, setUrl] = useState('');
+  const [useEmoji, setUseEmoji] = useState(false);
   const [shortenedUrl, setShortenedUrl] = useState<ShortenedUrl | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const lastAutoShortenedUrl = useRef<string>('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setShortenedUrl(null);
+  const shortenUrl = useCallback(
+    async (rawUrl: string) => {
+      setError('');
+      setShortenedUrl(null);
 
-    if (!url.trim()) {
-      setError('Please enter a URL');
+      if (!rawUrl.trim()) {
+        setError('Please enter a URL');
+        return;
+      }
+
+      // Add protocol if missing
+      let urlToShorten = rawUrl.trim();
+      if (
+        !urlToShorten.startsWith('http://') &&
+        !urlToShorten.startsWith('https://')
+      ) {
+        urlToShorten = 'https://' + urlToShorten;
+      }
+
+      setLoading(true);
+
+      try {
+        const response = await fetch(`${API_URL}/shorten`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: urlToShorten, useEmoji }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Failed to shorten URL');
+        }
+
+        setShortenedUrl(data.data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [useEmoji],
+  );
+
+  useEffect(() => {
+    if (!initialUrl) {
       return;
     }
 
-    // Add protocol if missing
-    let urlToShorten = url.trim();
-    if (
-      !urlToShorten.startsWith('http://') &&
-      !urlToShorten.startsWith('https://')
-    ) {
-      urlToShorten = 'https://' + urlToShorten;
+    setUrl(initialUrl);
+
+    if (!autoShortenOnMount || !initialUrl.trim()) {
+      return;
     }
 
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_URL}/shorten`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: urlToShorten }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to shorten URL');
-      }
-
-      setShortenedUrl(data.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setLoading(false);
+    if (lastAutoShortenedUrl.current === initialUrl.trim()) {
+      return;
     }
+
+    lastAutoShortenedUrl.current = initialUrl.trim();
+    void shortenUrl(initialUrl);
+  }, [autoShortenOnMount, initialUrl, shortenUrl]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await shortenUrl(url);
   };
 
   const copyToClipboard = async () => {
     if (!shortenedUrl) return;
 
-    const fullShortUrl = `${API_URL}${shortenedUrl.shortUrl}`;
+    const fullShortUrl = `${FRONTEND_URL}${shortenedUrl.shortUrl}`;
     await navigator.clipboard.writeText(fullShortUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <Card className="w-full">
-      <CardContent className="pt-6">
+    <Card className="w-full glass-surface rounded-[30px] border-white/45">
+      <CardContent className="pt-6 sm:pt-7">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -86,11 +126,15 @@ export function UrlShortener() {
                 placeholder="Enter your long URL here..."
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                className="pl-10"
+                className="pl-10 h-12 rounded-2xl bg-white/65 border-white/50 shadow-inner shadow-slate-900/5 dark:bg-slate-900/55 dark:border-white/10"
                 disabled={loading}
               />
             </div>
-            <Button type="submit" disabled={loading}>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="h-12 rounded-2xl px-6 sm:px-7 shadow-lg shadow-slate-900/15"
+            >
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -102,18 +146,31 @@ export function UrlShortener() {
             </Button>
           </div>
 
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={useEmoji}
+              onChange={(e) => setUseEmoji(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary"
+              disabled={loading}
+            />
+            <span className="text-sm text-muted-foreground">
+              Use emoji code instead of words
+            </span>
+          </label>
+
           {error && (
             <p className="text-sm text-destructive text-left">{error}</p>
           )}
         </form>
 
         {shortenedUrl && (
-          <div className="mt-6 p-4 rounded-lg bg-muted/50 space-y-3">
+          <div className="mt-6 p-4 sm:p-5 rounded-3xl bg-white/45 border border-white/45 dark:bg-slate-900/35 dark:border-white/10 space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-muted-foreground mb-1">Short URL</p>
                 <p className="text-lg font-medium truncate">
-                  {API_URL}
+                  {FRONTEND_URL}
                   {shortenedUrl.shortUrl}
                 </p>
               </div>
@@ -122,7 +179,10 @@ export function UrlShortener() {
                   variant="outline"
                   size="icon"
                   onClick={copyToClipboard}
-                  className={cn(copied && 'text-green-500')}
+                  className={cn(
+                    'rounded-2xl bg-white/70 border-white/50 dark:bg-slate-900/45 dark:border-white/10',
+                    copied && 'text-green-500',
+                  )}
                 >
                   {copied ? (
                     <Check className="h-4 w-4" />
@@ -130,9 +190,14 @@ export function UrlShortener() {
                     <Copy className="h-4 w-4" />
                   )}
                 </Button>
-                <Button variant="outline" size="icon" asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="rounded-2xl bg-white/70 border-white/50 dark:bg-slate-900/45 dark:border-white/10"
+                  asChild
+                >
                   <a
-                    href={`${API_URL}${shortenedUrl.shortUrl}`}
+                    href={`${FRONTEND_URL}${shortenedUrl.shortUrl}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -151,16 +216,16 @@ export function UrlShortener() {
 
             <div className="pt-2 border-t border-border">
               <p className="text-xs text-muted-foreground mb-1">Short Code</p>
-              <p className="text-sm font-mono bg-background px-2 py-1 rounded inline-block">
+              <p className="text-sm font-mono bg-background/70 px-2 py-1 rounded-xl inline-block">
                 {shortenedUrl.shortCode}
               </p>
             </div>
 
             <div className="pt-3 border-t border-border flex flex-col items-center gap-2">
               <p className="text-xs text-muted-foreground">Scan to open</p>
-              <div className="bg-white p-3 rounded-lg">
+              <div className="bg-white p-3 rounded-2xl">
                 <QRCodeSVG
-                  value={`${API_URL}${shortenedUrl.shortUrl}`}
+                  value={`${FRONTEND_URL}${shortenedUrl.shortUrl}`}
                   size={160}
                   level="M"
                   includeMargin={false}

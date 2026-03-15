@@ -1,6 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ADJECTIVES, COLORS, NOUNS } from './words';
 
+// Top 30 most recognisable emojis — everyone knows these at a glance
+const EMOJI_POOL = [
+  '😀', '❤️', '🔥', '⭐', '✅', '🎉', '👍', '😎',
+  '🌈', '⚡', '🎵', '🏆', '💎', '🚀', '🌊', '🍕',
+  '🎮', '🐶', '🐱', '🌸', '☀️', '🌙', '❄️', '🍎',
+  '⚽', '🎸', '🎂', '💡', '🔑', '🎈',
+];
+
+const EMOJI_CODE_LENGTH = 3;
+
 @Injectable()
 export class WordGeneratorService {
   /**
@@ -18,6 +28,20 @@ export class WordGeneratorService {
       this.capitalize(color) +
       this.capitalize(noun)
     );
+  }
+
+  /**
+   * Generates an emoji-based short code
+   * Example: "🚀🌈🔥⭐"
+   */
+  generateEmojiCode(): string {
+    const emojis: string[] = [];
+
+    for (let i = 0; i < EMOJI_CODE_LENGTH; i++) {
+      emojis.push(EMOJI_POOL[Math.floor(Math.random() * EMOJI_POOL.length)]);
+    }
+
+    return emojis.join('');
   }
 
   /**

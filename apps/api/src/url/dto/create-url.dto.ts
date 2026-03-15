@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsUrl } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsNotEmpty, IsOptional, IsUrl } from 'class-validator';
 
 export class CreateUrlDto {
   @ApiProperty({
@@ -16,4 +16,12 @@ export class CreateUrlDto {
     { message: 'Please provide a valid URL with http or https protocol' },
   )
   url: string;
+
+  @ApiPropertyOptional({
+    description: 'Use emoji short code instead of three words',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  useEmoji?: boolean;
 }

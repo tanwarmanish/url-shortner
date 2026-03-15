@@ -1,3 +1,10 @@
+import * as crypto from 'crypto';
+
+// Polyfill globalThis.crypto for Node < 19 (required by @nestjs/schedule)
+if (!globalThis.crypto) {
+  (globalThis as Record<string, unknown>).crypto = crypto;
+}
+
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -7,6 +14,45 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+  let isShuttingDown = false;
+
+  app.enableShutdownHooks();
+
+  const shutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
+    console.log(`[Shutdown] Received ${signal}. Closing backend server...`);
+
+    try {
+      await app.close();
+      console.log('[Shutdown] Backend server closed. Port released.');
+      process.exit(0);
+    } catch (error) {
+      console.error('[Shutdown] Error while closing backend server:', error);
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+
+  process.on('uncaughtException', (error) => {
+    console.error('[Crash] Uncaught exception:', error);
+    void shutdown('uncaughtException');
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('[Crash] Unhandled rejection:', reason);
+    void shutdown('unhandledRejection');
+  });
 
   // Enable CORS for frontend
   app.enableCors({
