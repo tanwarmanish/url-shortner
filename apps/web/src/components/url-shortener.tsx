@@ -12,7 +12,8 @@ interface ShortenedUrl {
   shortUrl: string;
 }
 
-const API_URL = 'http://localhost:3000';
+const API_URL =
+  (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000';
 const FRONTEND_URL =
   typeof window !== 'undefined'
     ? window.location.origin

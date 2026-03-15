@@ -5,7 +5,8 @@ import { ThemeToggle } from './components/theme-toggle';
 import { Button } from './components/ui/button';
 import { UrlShortener } from './components/url-shortener';
 
-const API_URL = 'http://localhost:3000';
+const API_URL =
+  (import.meta.env.VITE_API_URL as string) || 'http://localhost:3000';
 const ADSENSE_CLIENT_ID = import.meta.env.VITE_ADSENSE_CLIENT_ID as
   | string
   | undefined;
